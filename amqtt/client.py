@@ -329,7 +329,13 @@ class MQTTClient:
                 ('$SYS/broker/load/#', QOS_2),
             ]
         """
-        return await self._handler.mqtt_subscribe(topics, self.session.next_packet_id)
+        task = asyncio.ensure_future(self._handler.mqtt_subscribe(topics, self.session.next_packet_id))
+        self.client_tasks.append(task)
+        try:
+            return await task
+        finally:
+            if task in self.client_tasks:
+                self.client_tasks.remove(task)
 
     @mqtt_connected
     async def unsubscribe(self, topics):
@@ -347,7 +353,13 @@ class MQTTClient:
 
             ['$SYS/broker/uptime', '$SYS/broker/load/#']
         """
-        await self._handler.mqtt_unsubscribe(topics, self.session.next_packet_id)
+        task = asyncio.ensure_future(self._handler.mqtt_unsubscribe(topics, self.session.next_packet_id))
+        self.client_tasks.append(task)
+        try:
+            await task
+        finally:
+            if task in self.client_tasks:
+                self.client_tasks.remove(task)
 
     async def deliver_message(self, timeout=None):
         """
@@ -369,8 +381,8 @@ class MQTTClient:
             return_when=asyncio.FIRST_EXCEPTION,
             timeout=timeout,
         )
-        if self.client_tasks:
-            self.client_tasks.pop()
+        if deliver_task in self.client_tasks:
+            self.client_tasks.remove(deliver_task)
         if deliver_task in done:
             if deliver_task.exception() is not None:
                 # deliver_task raised an exception, pass it on to our caller
